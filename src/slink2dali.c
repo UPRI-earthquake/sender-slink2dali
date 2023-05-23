@@ -36,6 +36,7 @@ static short int verbose = 0;   /* Flag to control general verbosity */
 static int stateint      = 0;   /* Packet interval to save statefile */
 static char *netcode     = 0;   /* Change all SEED newtork codes to netcode */
 static char *statefile   = 0;   /* State file for saving/restoring stream states */
+static char *jwt         = 0;   /* valid JWT */
 static int writeack      = 0;   /* Flag to control the request for write acks */
 static int dialup        = 0;   /* Flag to control SeedLink dialup mode */
 static int keepalive     = 300; /* Interval to send keepalive/heartbeat (secs) */
@@ -88,10 +89,8 @@ main (int argc, char **argv)
     return -1;
   }
 
-  char * jwt = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE2OTA4ODk5NTEsImlhdCI6MTY4NDg0MTM1MSwic3ViIjoiZHJhZ3JhY2UiLCJ3cGF0IjoiR0VfVE9MSTIuKi9NU0VFRCJ9.UdeFfJd3oODFy4ImUW3Peo0rA0HNMke0dYbxTOF1uZw";
-
   /* Authorize connection to DataLink server */
-  if (dl_authorize (dlconn, jwt) < 0)
+  if (jwt && dl_authorize (dlconn, jwt) < 0)
   {
     sl_log (2, 0, "Error authorizing a write connection to DataLink server\n");
     return -1;
@@ -129,7 +128,7 @@ main (int argc, char **argv)
           sl_log (2, 0, "Error re-connecting to DataLink server, sleeping 10 seconds\n");
           sleep (10);
         }
-        else if (dl_authorize (dlconn, jwt) < 0)
+        else if (jwt && dl_authorize (dlconn, jwt) < 0)
         {
           sl_log (2, 0, "Error authorizing a write connection after re-connect, sleeping 10 seconds\n");
           sleep (10);
@@ -254,6 +253,10 @@ parameter_proc (int argcount, char **argvec)
     else if (strncmp (argvec[optind], "-v", 2) == 0)
     {
       verbose += strspn (&argvec[optind][1], "v");
+    }
+    else if (strcmp (argvec[optind], "-a") == 0)
+    {
+      jwt = getoptval (argcount, argvec, optind++);
     }
     else if (strcmp (argvec[optind], "-l") == 0)
     {
@@ -547,6 +550,7 @@ usage (void)
            " -V              Report program version\n"
            " -h              Print this usage message\n"
            " -v              Be more verbose, multiple flags can be used\n"
+           " -a token        Configure DataLink connection with write authorization via JWT\n"
            " -d              Configure SeedLink connection in dial-up mode\n"
            " -nd delay       network re-connect delay (seconds), default 30\n"
            " -nt timeout     network timeout (seconds), re-establish connection if no\n"
