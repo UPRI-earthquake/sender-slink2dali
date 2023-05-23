@@ -88,6 +88,15 @@ main (int argc, char **argv)
     return -1;
   }
 
+  char * jwt = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE2OTA4ODk5NTEsImlhdCI6MTY4NDg0MTM1MSwic3ViIjoiZHJhZ3JhY2UiLCJ3cGF0IjoiR0VfVE9MSTIuKi9NU0VFRCJ9.UdeFfJd3oODFy4ImUW3Peo0rA0HNMke0dYbxTOF1uZw";
+
+  /* Authorize connection to DataLink server */
+  if (dl_authorize (dlconn, jwt) < 0)
+  {
+    sl_log (2, 0, "Error authorizing a write connection to DataLink server\n");
+    return -1;
+  }
+
   /* Loop with the connection manager */
   while (sl_collect (slconn, &slpack))
   {
@@ -118,6 +127,11 @@ main (int argc, char **argv)
         if (dl_connect (dlconn) < 0)
         {
           sl_log (2, 0, "Error re-connecting to DataLink server, sleeping 10 seconds\n");
+          sleep (10);
+        }
+        else if (dl_authorize (dlconn, jwt) < 0)
+        {
+          sl_log (2, 0, "Error authorizing a write connection after re-connect, sleeping 10 seconds\n");
           sleep (10);
         }
 

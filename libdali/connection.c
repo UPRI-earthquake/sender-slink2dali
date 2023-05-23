@@ -222,6 +222,93 @@ dl_exchangeIDs (DLCP *dlconn, int parseresp)
 } /* End of dl_exchangeIDs() */
 
 /***********************************************************************/ /**
+ * @brief Send AUTHORIZATION command to the DataLink server
+ *
+ *
+ * @param dlconn DataLink Connection Parameters
+ * @param jwt JSON web token string
+ *
+ * @return -1 on error and 0 on success
+ ***************************************************************************/
+int64_t
+dl_authorize (DLCP *dlconn, char *jwt)
+{
+  int64_t replyvalue = 0;
+  char reply[255];
+  char header[255];
+  long int jwtlen;
+  int headerlen;
+  int replylen;
+  int rv;
+
+  if (!dlconn || !jwt)
+  {
+    dl_log_r (dlconn, 1, 1, "dl_authorize(): dlconn || jwt is not anticipated value \n");
+    return -1;
+  }
+
+  /* Link should be a valid socket integer */
+  if (dlconn->link < 0)
+  {
+    dl_log_r (dlconn, 1, 3, "[%s] dl_authorize(): dlconn->link = %d, expect >=0 \n", dlconn->addr, dlconn->link);
+    return -1;
+  }
+
+  /* Sanity check that connection is not in streaming mode */
+  if (dlconn->streaming)
+  {
+    dl_log_r (dlconn, 1, 1, "[%s] dl_authorize(): Connection in streaming mode, cannot continue\n",
+              dlconn->addr);
+    return -1;
+  }
+
+  /* Sanity check that jwt is not larger than max packet size if known */
+  /* max packet size is used as proxy to maximum jwt len */
+  jwtlen = strlen (jwt);
+  if (dlconn->maxpktsize > 0 && jwtlen > dlconn->maxpktsize)
+  {
+    dl_log_r (dlconn, 1, 1, "[%s] dl_authorize(): Token length (%ld) greater than max packet size (%d)\n",
+              dlconn->addr, jwtlen, dlconn->maxpktsize);
+    return -1;
+  }
+
+  /* Create packet header with command: "AUTHORIZATION size" */
+  headerlen = snprintf (header, sizeof (header), "AUTHORIZATION %ld", jwtlen);
+
+  /* Send command and packet: AUTHORIZATION size/r/ntoken */
+  replylen = dl_sendpacket (dlconn, header, headerlen,
+                            jwt, jwtlen,
+                            reply, sizeof (reply));
+
+  if (replylen <= 0)
+  {
+    dl_log_r (dlconn, 2, 0, "[%s] dl_authorize(): problem sending AUTHORIZATION command\n",
+              dlconn->addr);
+    return -1;
+  }
+
+  /* Reply message, if sent, will be placed into the reply buffer */
+  rv = dl_handlereply (dlconn, reply, sizeof (reply), &replyvalue);
+
+  /* Log server reply message */
+  if (rv == 0) // OK received
+  {
+    dl_log_r (dlconn, 1, 3, "[%s] %s\n", dlconn->addr, reply);
+  }
+  else if (rv == 1) // ERROR received
+  {
+    dl_log_r (dlconn, 1, 0, "[%s] %s\n", dlconn->addr, reply);
+    replyvalue = -1;
+  }
+  else
+  {
+    replyvalue = -1; // error encountered in handling reply
+  }
+
+  return replyvalue;
+} /* End of dl_authorize() */
+
+/***********************************************************************/ /**
  * @brief Position the client read position
  *
  * Set the client read position to a specified packet ID and packet

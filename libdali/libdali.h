@@ -271,6 +271,7 @@ extern int     dl_exchangeIDs (DLCP *dlconn, int parseresp);
 extern int64_t dl_position (DLCP *dlconn, int64_t pktid, dltime_t pkttime);
 extern int64_t dl_position_after (DLCP *dlconn, dltime_t datatime);
 extern int64_t dl_match (DLCP *dlconn, char *matchpattern);
+extern int64_t dl_authorize (DLCP *dlconn, char *jwt);
 extern int64_t dl_reject (DLCP *dlconn, char *rejectpattern);
 extern int64_t dl_write (DLCP *dlconn, void *packet, int packetlen, char *streamid,
 			 dltime_t datastart, dltime_t dataend, int ack);
