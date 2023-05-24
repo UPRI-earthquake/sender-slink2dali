@@ -85,14 +85,14 @@ main (int argc, char **argv)
   /* Connect to DataLink server */
   if (dl_connect (dlconn) < 0)
   {
-    sl_log (2, 0, "Error connecting to DataLink server\n");
+    sl_log (2, 0, "CONN_ERR | Error connecting to DataLink server\n");
     return -1;
   }
 
   /* Authorize connection to DataLink server */
   if (jwt && dl_authorize (dlconn, jwt) < 0)
   {
-    sl_log (2, 0, "Error authorizing a write connection to DataLink server\n");
+    sl_log (2, 0, "AUTH_ERR | Error authorizing a write connection to DataLink server\n");
     return -1;
   }
 
@@ -125,12 +125,12 @@ main (int argc, char **argv)
 
         if (dl_connect (dlconn) < 0)
         {
-          sl_log (2, 0, "Error re-connecting to DataLink server, sleeping 10 seconds\n");
+          sl_log (2, 0, "CONN_ERR | Error re-connecting to DataLink server, sleeping 10 seconds\n");
           sleep (10);
         }
         else if (jwt && dl_authorize (dlconn, jwt) < 0)
         {
-          sl_log (2, 0, "Error authorizing a write connection after re-connect, sleeping 10 seconds\n");
+          sl_log (2, 0, "AUTH_ERR | Error authorizing a write connection after re-connect, sleeping 10 seconds\n");
           sleep (10);
         }
 
@@ -192,7 +192,7 @@ sendrecord (char *record, int reclen)
   if ((rv = msr_unpack (record, reclen, &msr, 0, 0)) != MS_NOERROR)
   {
     ms_recsrcname (record, streamid, 0);
-    sl_log (2, 0, "Error unpacking %s: %s", streamid, ms_errorstr (rv));
+    sl_log (2, 0, "WRITE_ERR | Error unpacking %s: %s", streamid, ms_errorstr (rv));
     return -1;
   }
 
@@ -206,6 +206,7 @@ sendrecord (char *record, int reclen)
   /* Send record to server */
   if (dl_write (dlconn, record, reclen, streamid, msr->starttime, endtime, writeack) < 0)
   {
+    sl_log (2, 0, "WRITE_ERR | Error writing to host \n");
     return -1;
   }
 
