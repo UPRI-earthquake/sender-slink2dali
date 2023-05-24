@@ -668,6 +668,7 @@ dl_write (DLCP *dlconn, void *packet, int packetlen, char *streamid,
                         flags, packetlen);
 
   /* Send command and packet to server */
+  /* NOTE: ack sets whether to parse and store the reply message or not */
   replylen = dl_sendpacket (dlconn, header, headerlen,
                             packet, packetlen,
                             (ack) ? reply : NULL, (ack) ? sizeof (reply) : 0);
@@ -684,16 +685,16 @@ dl_write (DLCP *dlconn, void *packet, int packetlen, char *streamid,
     rv = dl_handlereply (dlconn, reply, sizeof (reply), &replyvalue);
 
     /* Log server reply message */
-    if (rv == 0)
+    if (rv == 0) // Server replied with status "OK"
     {
       dl_log_r (dlconn, 1, 3, "[%s] %s\n", dlconn->addr, reply);
     }
-    else if (rv == 1)
+    else if (rv == 1) // Server replied with status "ERROR"
     {
       dl_log_r (dlconn, 1, 0, "[%s] %s\n", dlconn->addr, reply);
       replyvalue = -1;
     }
-    else
+    else // Error in dl_handlereply
     {
       replyvalue = -1;
     }

@@ -367,6 +367,7 @@ dl_sendpacket (DLCP *dlconn, void *headerbuf, size_t headerlen,
   if (dl_senddata (dlconn, wirepacket, (3 + headerlen + datalen)) < 0)
   {
     /* Check for a message from the server */
+    /* NOTE: if respbuf is NULL, dl_recvheader doesn't proceed and returns -2 */
     if ((bytesread = dl_recvheader (dlconn, respbuf, resplen, 0)) > 0)
     {
       dl_log_r (dlconn, 2, 0, "[%s] %*s", dlconn->addr, bytesread, (char *)respbuf);
