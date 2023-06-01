@@ -36,7 +36,8 @@ static short int verbose = 0;   /* Flag to control general verbosity */
 static int stateint      = 0;   /* Packet interval to save statefile */
 static char *netcode     = 0;   /* Change all SEED newtork codes to netcode */
 static char *statefile   = 0;   /* State file for saving/restoring stream states */
-static int writeack      = 0;   /* Flag to control the request for write acks */
+static char *jwt         = 0;   /* valid JWT */
+static int writeack      = 1;   /* Flag to control the request for write acks, always request! */
 static int dialup        = 0;   /* Flag to control SeedLink dialup mode */
 static int keepalive     = 300; /* Interval to send keepalive/heartbeat (secs) */
 static int netto         = 600; /* Network timeout (secs) */
@@ -84,7 +85,14 @@ main (int argc, char **argv)
   /* Connect to DataLink server */
   if (dl_connect (dlconn) < 0)
   {
-    sl_log (2, 0, "Error connecting to DataLink server\n");
+    sl_log (2, 0, "CONN_ERR | Error connecting to DataLink server\n");
+    return -1;
+  }
+
+  /* Authorize connection to DataLink server */
+  if (jwt && dl_authorize (dlconn, jwt) < 0)
+  {
+    sl_log (2, 0, "AUTH_ERR | Error authorizing a write connection to DataLink server\n");
     return -1;
   }
 
@@ -117,7 +125,12 @@ main (int argc, char **argv)
 
         if (dl_connect (dlconn) < 0)
         {
-          sl_log (2, 0, "Error re-connecting to DataLink server, sleeping 10 seconds\n");
+          sl_log (2, 0, "CONN_ERR | Error re-connecting to DataLink server, sleeping 10 seconds\n");
+          sleep (10);
+        }
+        else if (jwt && dl_authorize (dlconn, jwt) < 0)
+        {
+          sl_log (2, 0, "AUTH_ERR | Error authorizing a write connection after re-connect, sleeping 10 seconds\n");
           sleep (10);
         }
 
@@ -179,7 +192,7 @@ sendrecord (char *record, int reclen)
   if ((rv = msr_unpack (record, reclen, &msr, 0, 0)) != MS_NOERROR)
   {
     ms_recsrcname (record, streamid, 0);
-    sl_log (2, 0, "Error unpacking %s: %s", streamid, ms_errorstr (rv));
+    sl_log (2, 0, "WRITE_ERR | Error unpacking %s: %s", streamid, ms_errorstr (rv));
     return -1;
   }
 
@@ -193,6 +206,7 @@ sendrecord (char *record, int reclen)
   /* Send record to server */
   if (dl_write (dlconn, record, reclen, streamid, msr->starttime, endtime, writeack) < 0)
   {
+    sl_log (2, 0, "WRITE_ERR | Error writing to host \n");
     return -1;
   }
 
@@ -240,6 +254,10 @@ parameter_proc (int argcount, char **argvec)
     else if (strncmp (argvec[optind], "-v", 2) == 0)
     {
       verbose += strspn (&argvec[optind][1], "v");
+    }
+    else if (strcmp (argvec[optind], "-a") == 0)
+    {
+      jwt = getoptval (argcount, argvec, optind++);
     }
     else if (strcmp (argvec[optind], "-l") == 0)
     {
@@ -533,6 +551,7 @@ usage (void)
            " -V              Report program version\n"
            " -h              Print this usage message\n"
            " -v              Be more verbose, multiple flags can be used\n"
+           " -a token        Configure DataLink connection with write authorization via JWT\n"
            " -d              Configure SeedLink connection in dial-up mode\n"
            " -nd delay       network re-connect delay (seconds), default 30\n"
            " -nt timeout     network timeout (seconds), re-establish connection if no\n"
