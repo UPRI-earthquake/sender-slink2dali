@@ -616,14 +616,17 @@ dl_reject (DLCP *dlconn, char *rejectpattern)
  * @param datastart Data start time for packet
  * @param dataend Data end time for packet
  * @param ack Acknowledgement flag, if true request acknowledgement
+ * @param pstatuscode storage for Success or Error code as defined
+ *        in ringserver_response_codes.h. -1 if parsing err occured.
+ *        Note reply-message format = "STA_TUS(CODE): Message"
  *
- * @return -1 on error and 0 on success when no acknowledgement is
- * requested and a positive packet ID on success when acknowledgement
- * is requested.
+ * @return -1 on error
+ *          0 on success when no acknowledgement is requested, or
+ *          positive packet ID on success when acknowledgement is requested.
  ***************************************************************************/
 int64_t
 dl_write (DLCP *dlconn, void *packet, int packetlen, char *streamid,
-          dltime_t datastart, dltime_t dataend, int ack)
+          dltime_t datastart, dltime_t dataend, int ack, int* pstatuscode)
 {
   int64_t replyvalue = 0;
   char reply[255];
@@ -633,9 +636,9 @@ dl_write (DLCP *dlconn, void *packet, int packetlen, char *streamid,
   int replylen;
   int rv;
 
-  if (!dlconn || !packet || !streamid)
+  if (!dlconn || !packet || !streamid || !pstatuscode)
   {
-    dl_log_r (dlconn, 1, 1, "dl_write(): dlconn || packet || streamid is not anticipated value \n");
+    dl_log_r (dlconn, 1, 1, "dl_write(): dlconn || packet || streamid || pstatuscode is not anticipated value \n");
     return -1;
   }
 
@@ -683,6 +686,11 @@ dl_write (DLCP *dlconn, void *packet, int packetlen, char *streamid,
   {
     /* Reply message, if sent, will be placed into the reply buffer */
     rv = dl_handlereply (dlconn, reply, sizeof (reply), &replyvalue);
+
+    // Get status code from reply message
+    if(sscanf(reply, "%*[_A-Z](%d):", pstatuscode) == 0){
+      *pstatuscode = -1
+    }
 
     /* Log server reply message */
     if (rv == 0) // Server replied with status "OK"
@@ -1511,6 +1519,7 @@ dl_handlereply (DLCP *dlconn, void *buffer, int buflen, int64_t *value)
   if (size > 0)
   {
     /* Receive reply message, blocking until complete */
+    // NOTE: buffer seems to be overwritten...
     if ((rv = dl_recvdata (dlconn, buffer, (size_t)size, 1)) != size)
     {
       /* Only log an error if the connection was not shut down */

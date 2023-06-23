@@ -95,6 +95,8 @@ main (int argc, char **argv)
     sl_log (2, 0, "AUTH_ERR | Error authorizing a write connection to DataLink server\n");
     return -1;
   }
+ // TODO: create_connection(dlconn, jwt) that does the above, returns 0 or -1, handles
+ // auth errors accordingly
 
   /* Loop with the connection manager */
   while (sl_collect (slconn, &slpack))
@@ -114,6 +116,7 @@ main (int argc, char **argv)
     /* Send record to the DataLink server if not internal types, INFO or keep alive */
     if (ptype >= SLDATA && ptype < SLNUM)
     {
+#if 0
       while (sendrecord ((char *)&slpack->msrecord, SLRECSIZE))
       {
         if (verbose)
@@ -137,9 +140,27 @@ main (int argc, char **argv)
         if (slconn->terminate)
           break;
       }
+#endif
+      int status = 0;
+      status = sendrecord ((char *)&slpack->msrecord, SLRECSIZE)
+      if(status == 0)
+      {
+        packetcnt++;
+      }
+      else if( status == -1 )
+      {
+        ; //Packet was dropped.. we can retry here..
+      }
+      else if( status == -2 )
+      {
+        break; // Stop connection
+      }
+      else
+      {
+        sl_log (2, 0, "sendrecord() return value unhandled\n");
+        break;
+      }
 
-      packetcnt++;
-    }
 
     /* Save intermediate state files */
     if (statefile && stateint)
@@ -172,7 +193,7 @@ main (int argc, char **argv)
  *
  * Send the specified record to the DataLink server.
  *
- * Returns 0 on success, and -1 on failure
+ * Returns 0 on success, and -1 on packet dropped, -2 on failure
  ***************************************************************************/
 static int
 sendrecord (char *record, int reclen)
@@ -192,8 +213,8 @@ sendrecord (char *record, int reclen)
   if ((rv = msr_unpack (record, reclen, &msr, 0, 0)) != MS_NOERROR)
   {
     ms_recsrcname (record, streamid, 0);
-    sl_log (2, 0, "WRITE_ERR | Error unpacking %s: %s", streamid, ms_errorstr (rv));
-    return -1;
+    sl_log (2, 0, "Error unpacking %s: %s", streamid, ms_errorstr (rv));
+    return -2; // Disconnect
   }
 
   /* Generate stream ID for this record: NET_STA_LOC_CHAN/MSEED */
@@ -204,13 +225,32 @@ sendrecord (char *record, int reclen)
   endtime = msr_endtime (msr);
 
   /* Send record to server */
-  if (dl_write (dlconn, record, reclen, streamid, msr->starttime, endtime, writeack) < 0)
+  int statuscode = -1;
+  if (dl_write (dlconn, record, reclen, streamid, msr->starttime, endtime, writeack, &statuscode) >= 0)
   {
-    sl_log (2, 0, "WRITE_ERR | Error writing to host \n");
-    return -1;
+    // dl_write = 0 when success and no ack is requested
+    // dl_write > 0 when success and ack is requested (returns pkt id)
+    return 0;
   }
+  else
+  {
+    sl_log (2, 0, "Error on dl_write() \n");
 
-  return 0;
+    switch(statuscode){
+      case WRITE_STREAM_UNAUTHORIZED_ERROR:
+        return -1;
+      case WRITE_ERROR:
+      case WRITE_INTERNAL_ERROR:
+      case WRITE_UNAUTHORIZED_ERROR:
+      case WRITE_NO_DEVICE_ERROR:
+      case WRITE_EXPIRED_TOKEN_ERROR:
+      case WRITE_FORMAT_ERROR:
+      case WRITE_LARGE_PACKET_ERROR:
+      default:
+        return -2; // disconnect
+    }
+
+  }
 } /* End of sendrecord() */
 
 /***************************************************************************
