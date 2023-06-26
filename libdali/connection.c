@@ -287,7 +287,7 @@ dl_authorize (DLCP *dlconn, char *jwt, int *pstatuscode)
   if (replylen <= 0)
   {
     // reply should always contain something from ringserver
-    dl_log_r (dlconn, 2, 0, "[%s] dl_authorize(): problem sending AUTHORIZATION command\n",
+    dl_log_r (dlconn, 2, 0, "[%s] dl_authorize(): problem within AUTHORIZATION step\n",
               dlconn->addr);
     return -1;
   }
