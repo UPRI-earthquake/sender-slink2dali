@@ -20,10 +20,12 @@
 #include <libdali.h>
 #include <libmseed.h>
 #include <libslink.h>
+#include "./ringserver_response_codes.h"
 
 #define PACKAGE "slink2dali"
 #define VERSION "0.8"
 
+static int createDLconnection (DLCP* dlconn, char* jwt);
 static int sendrecord (char *record, int reclen);
 static int parameter_proc (int argcount, char **argvec);
 static char *getoptval (int argcount, char **argvec, int argopt);
@@ -82,21 +84,67 @@ main (int argc, char **argv)
     return -1;
   }
 
-  /* Connect to DataLink server */
-  if (dl_connect (dlconn) < 0)
+  /* Require authorization via jwt */
+  if ( !jwt )
   {
-    sl_log (2, 0, "CONN_ERR | Error connecting to DataLink server\n");
+    sl_log (2, 0, "This build requires the `-a token` option\n");
     return -1;
   }
 
-  /* Authorize connection to DataLink server */
-  if (jwt && dl_authorize (dlconn, jwt) < 0)
+  int connx_status = 0;
+  connx_status =  createDLconnection(dlconn, jwt);
+  if( connx_status == 0 )
   {
-    sl_log (2, 0, "AUTH_ERR | Error authorizing a write connection to DataLink server\n");
+    ; // proceed
+  }
+  else if ( connx_status == -1 )
+  {
+    // recover connection, see if we can reconnect within 2 tries
+    int MAX_TRY = 2;
+    int connx_status = 0;
+    for(int i=0; i<MAX_TRY; i++){
+      // Re-connect to DataLink server and sleep before trying again
+      sl_log (1, 0, "Re-connecting to DataLink server\n");
+
+      if (dlconn->link != -1){
+        dl_disconnect (dlconn);
+      }
+
+      connx_status = createDLconnection(dlconn, jwt);
+      if( connx_status == 0 )
+      {
+        sl_log (1, 0, "Successfully reconnected to DataLink server\n");
+        break; 
+      }
+      else if ( (connx_status == -1) && (i != MAX_TRY-1) ) // MAX_TRY-1 is the last iteration
+      {
+        sl_log (1, 0, "Failed to reconnect to DataLink server. Trying again...\n");
+        sleep(10);
+        continue; 
+      }
+      else if ( (connx_status == -1) && (i == MAX_TRY-1) )
+      {
+        sl_log (1, 0, "Last attempt to reconnect to DataLink server failed. Aborting...\n");
+        return -1;
+      }
+      else if ( connx_status == -2)
+      {
+        sl_log (1, 0, "Unrecoverable failure to reconnect to DataLink server.\n");
+        return -1;
+      }
+    }
+  }
+  else if ( connx_status == -2)
+  {
+    // abort connection, exit program
+    sl_log (2, 0, "Unrecoverable error encountered in createDLconnection(). Aborting...\n");
     return -1;
   }
- // TODO: create_connection(dlconn, jwt) that does the above, returns 0 or -1, handles
- // auth errors accordingly
+  else
+  {
+    sl_log (2, 0, "createDLconnection() return value unhandled.\n");
+    return -1;
+  }
 
   /* Loop with the connection manager */
   while (sl_collect (slconn, &slpack))
@@ -116,6 +164,7 @@ main (int argc, char **argv)
     /* Send record to the DataLink server if not internal types, INFO or keep alive */
     if (ptype >= SLDATA && ptype < SLNUM)
     {
+
 #if 0
       while (sendrecord ((char *)&slpack->msrecord, SLRECSIZE))
       {
@@ -141,17 +190,18 @@ main (int argc, char **argv)
           break;
       }
 #endif
-      int status = 0;
-      status = sendrecord ((char *)&slpack->msrecord, SLRECSIZE)
-      if(status == 0)
+
+      int send_status = 0;
+      send_status = sendrecord ((char *)&slpack->msrecord, SLRECSIZE);
+      if( send_status == 0 )
       {
         packetcnt++;
       }
-      else if( status == -1 )
+      else if( send_status == -1 )
       {
         ; //Packet was dropped.. we can retry here..
       }
-      else if( status == -2 )
+      else if( send_status == -2 )
       {
         break; // Stop connection
       }
@@ -160,7 +210,7 @@ main (int argc, char **argv)
         sl_log (2, 0, "sendrecord() return value unhandled\n");
         break;
       }
-
+    }
 
     /* Save intermediate state files */
     if (statefile && stateint)
@@ -187,6 +237,45 @@ main (int argc, char **argv)
 
   return 0;
 } /* End of main() */
+
+/***************************************************************************
+ * createDLconnection:
+ *
+ * Initiate and authorize a DL connection
+ *
+ * Returns 0 on success, -1 on recoverable failure, -2 on critical failure
+ ***************************************************************************/
+static int
+createDLconnection (DLCP* dlconn, char* jwt)
+{
+  /* Connect to DataLink server */
+  if (dl_connect (dlconn) < 0)
+  {
+    sl_log (2, 0, "Error in dl_connect()\n");
+    return -1; // we can still retry
+  }
+
+  int auth_status = -2;
+  if (dl_authorize(dlconn, jwt, &auth_status) < 0 )
+  {
+    sl_log (2, 0, "Error in dl_authorize\n", dlconn->addr);
+
+    switch(auth_status){
+      case AUTH_ERROR:
+      case AUTH_INTERNAL_ERROR:
+        return -1; 
+      case AUTH_TOKEN_SIZE_ERROR:
+      case AUTH_ROLE_INVALID_ERROR:
+      case AUTH_EXPIRED_TOKEN_ERROR:
+      case AUTH_FORMAT_ERROR:
+      default:
+        return -2; // disconnect
+    }
+  }
+
+  return 0;
+
+}
 
 /***************************************************************************
  * sendrecord:
@@ -225,8 +314,8 @@ sendrecord (char *record, int reclen)
   endtime = msr_endtime (msr);
 
   /* Send record to server */
-  int statuscode = -1;
-  if (dl_write (dlconn, record, reclen, streamid, msr->starttime, endtime, writeack, &statuscode) >= 0)
+  int write_status = -2;
+  if (dl_write (dlconn, record, reclen, streamid, msr->starttime, endtime, writeack, &write_status) >= 0)
   {
     // dl_write = 0 when success and no ack is requested
     // dl_write > 0 when success and ack is requested (returns pkt id)
@@ -236,7 +325,7 @@ sendrecord (char *record, int reclen)
   {
     sl_log (2, 0, "Error on dl_write() \n");
 
-    switch(statuscode){
+    switch(write_status){
       case WRITE_STREAM_UNAUTHORIZED_ERROR:
         return -1;
       case WRITE_ERROR:
@@ -249,7 +338,6 @@ sendrecord (char *record, int reclen)
       default:
         return -2; // disconnect
     }
-
   }
 } /* End of sendrecord() */
 

@@ -227,11 +227,14 @@ dl_exchangeIDs (DLCP *dlconn, int parseresp)
  *
  * @param dlconn DataLink Connection Parameters
  * @param jwt JSON web token string
+ * @param pstatuscode storage for Success or Error code as defined
+ *        in ringserver_response_codes.h. -1 if internal err occured.
+ *        Note reply-message format = "STA_TUS_STR(CODE_INT): Message"
  *
  * @return -1 on error and 0 on success
  ***************************************************************************/
 int64_t
-dl_authorize (DLCP *dlconn, char *jwt)
+dl_authorize (DLCP *dlconn, char *jwt, int *pstatuscode)
 {
   int64_t replyvalue = 0;
   char reply[255];
@@ -240,6 +243,7 @@ dl_authorize (DLCP *dlconn, char *jwt)
   int headerlen;
   int replylen;
   int rv;
+  *pstatuscode = -1;
 
   if (!dlconn || !jwt)
   {
@@ -282,6 +286,7 @@ dl_authorize (DLCP *dlconn, char *jwt)
 
   if (replylen <= 0)
   {
+    // reply should always contain something from ringserver
     dl_log_r (dlconn, 2, 0, "[%s] dl_authorize(): problem sending AUTHORIZATION command\n",
               dlconn->addr);
     return -1;
@@ -289,6 +294,11 @@ dl_authorize (DLCP *dlconn, char *jwt)
 
   /* Reply message, if sent, will be placed into the reply buffer */
   rv = dl_handlereply (dlconn, reply, sizeof (reply), &replyvalue);
+
+  // Get status code from reply message
+  if(sscanf(reply, "%*[_A-Z](%d):", pstatuscode) == 0){
+    *pstatuscode = -1;
+  }
 
   /* Log server reply message */
   if (rv == 0) // OK received
@@ -635,6 +645,7 @@ dl_write (DLCP *dlconn, void *packet, int packetlen, char *streamid,
   int headerlen;
   int replylen;
   int rv;
+  *pstatuscode = -1;
 
   if (!dlconn || !packet || !streamid || !pstatuscode)
   {
@@ -689,7 +700,7 @@ dl_write (DLCP *dlconn, void *packet, int packetlen, char *streamid,
 
     // Get status code from reply message
     if(sscanf(reply, "%*[_A-Z](%d):", pstatuscode) == 0){
-      *pstatuscode = -1
+      *pstatuscode = -1;
     }
 
     /* Log server reply message */
