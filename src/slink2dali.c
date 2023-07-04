@@ -20,10 +20,12 @@
 #include <libdali.h>
 #include <libmseed.h>
 #include <libslink.h>
+#include "./ringserver_response_codes.h"
 
 #define PACKAGE "slink2dali"
 #define VERSION "0.8"
 
+static int createDLconnection (DLCP* dlconn, char* jwt);
 static int sendrecord (char *record, int reclen);
 static int parameter_proc (int argcount, char **argvec);
 static char *getoptval (int argcount, char **argvec, int argopt);
@@ -82,17 +84,65 @@ main (int argc, char **argv)
     return -1;
   }
 
-  /* Connect to DataLink server */
-  if (dl_connect (dlconn) < 0)
+  /* Require authorization via jwt */
+  if ( !jwt )
   {
-    sl_log (2, 0, "CONN_ERR | Error connecting to DataLink server\n");
+    sl_log (2, 0, "This build requires the `-a token` option\n");
     return -1;
   }
 
-  /* Authorize connection to DataLink server */
-  if (jwt && dl_authorize (dlconn, jwt) < 0)
+  int connx_status = 0;
+  connx_status =  createDLconnection(dlconn, jwt);
+  if( connx_status == 0 )
   {
-    sl_log (2, 0, "AUTH_ERR | Error authorizing a write connection to DataLink server\n");
+    ; // proceed
+  }
+  else if ( connx_status == -1 )
+  {
+    // recover connection, see if we can reconnect within 2 tries
+    int MAX_TRY = 2;
+    int connx_status = 0;
+    for(int i=0; i<MAX_TRY; i++){
+      // Re-connect to DataLink server and sleep before trying again
+      sl_log (1, 0, "Re-connecting to DataLink server\n");
+
+      if (dlconn->link != -1){
+        dl_disconnect (dlconn);
+      }
+
+      connx_status = createDLconnection(dlconn, jwt);
+      if( connx_status == 0 )
+      {
+        sl_log (1, 0, "Successfully reconnected to DataLink server\n");
+        break; 
+      }
+      else if ( (connx_status == -1) && (i != MAX_TRY-1) ) // MAX_TRY-1 is the last iteration
+      {
+        sl_log (1, 0, "Failed to reconnect to DataLink server. Trying again...\n");
+        sleep(10);
+        continue; 
+      }
+      else if ( (connx_status == -1) && (i == MAX_TRY-1) )
+      {
+        sl_log (1, 0, "Last attempt to reconnect to DataLink server failed. Aborting...\n");
+        return -1;
+      }
+      else if ( connx_status == -2)
+      {
+        sl_log (1, 0, "Unrecoverable failure to reconnect to DataLink server.\n");
+        return -1;
+      }
+    }
+  }
+  else if ( connx_status == -2)
+  {
+    // abort connection, exit program
+    sl_log (2, 0, "Unrecoverable error encountered in createDLconnection(). Aborting...\n");
+    return -1;
+  }
+  else
+  {
+    sl_log (2, 0, "createDLconnection() return value unhandled.\n");
     return -1;
   }
 
@@ -114,6 +164,8 @@ main (int argc, char **argv)
     /* Send record to the DataLink server if not internal types, INFO or keep alive */
     if (ptype >= SLDATA && ptype < SLNUM)
     {
+
+#if 0
       while (sendrecord ((char *)&slpack->msrecord, SLRECSIZE))
       {
         if (verbose)
@@ -137,8 +189,27 @@ main (int argc, char **argv)
         if (slconn->terminate)
           break;
       }
+#endif
 
-      packetcnt++;
+      int send_status = 0;
+      send_status = sendrecord ((char *)&slpack->msrecord, SLRECSIZE);
+      if( send_status == 0 )
+      {
+        packetcnt++;
+      }
+      else if( send_status == -1 )
+      {
+        ; //Packet was dropped.. we can retry here..
+      }
+      else if( send_status == -2 )
+      {
+        break; // Stop connection
+      }
+      else
+      {
+        sl_log (2, 0, "sendrecord() return value unhandled\n");
+        break;
+      }
     }
 
     /* Save intermediate state files */
@@ -168,11 +239,50 @@ main (int argc, char **argv)
 } /* End of main() */
 
 /***************************************************************************
+ * createDLconnection:
+ *
+ * Initiate and authorize a DL connection
+ *
+ * Returns 0 on success, -1 on recoverable failure, -2 on critical failure
+ ***************************************************************************/
+static int
+createDLconnection (DLCP* dlconn, char* jwt)
+{
+  /* Connect to DataLink server */
+  if (dl_connect (dlconn) < 0)
+  {
+    sl_log (2, 0, "Error in dl_connect()\n");
+    return -1; // we can still retry
+  }
+
+  int auth_status = -2;
+  if (dl_authorize(dlconn, jwt, &auth_status) < 0 )
+  {
+    sl_log (2, 0, "Error in dl_authorize\n", dlconn->addr);
+
+    switch(auth_status){
+      case AUTH_ERROR:
+      case AUTH_INTERNAL_ERROR:
+        return -1; 
+      case AUTH_TOKEN_SIZE_ERROR:
+      case AUTH_ROLE_INVALID_ERROR:
+      case AUTH_EXPIRED_TOKEN_ERROR:
+      case AUTH_FORMAT_ERROR:
+      default:
+        return -2; // disconnect
+    }
+  }
+
+  return 0;
+
+}
+
+/***************************************************************************
  * sendrecord:
  *
  * Send the specified record to the DataLink server.
  *
- * Returns 0 on success, and -1 on failure
+ * Returns 0 on success, and -1 on packet dropped, -2 on failure
  ***************************************************************************/
 static int
 sendrecord (char *record, int reclen)
@@ -192,8 +302,8 @@ sendrecord (char *record, int reclen)
   if ((rv = msr_unpack (record, reclen, &msr, 0, 0)) != MS_NOERROR)
   {
     ms_recsrcname (record, streamid, 0);
-    sl_log (2, 0, "WRITE_ERR | Error unpacking %s: %s", streamid, ms_errorstr (rv));
-    return -1;
+    sl_log (2, 0, "Error unpacking %s: %s", streamid, ms_errorstr (rv));
+    return -2; // Disconnect
   }
 
   /* Generate stream ID for this record: NET_STA_LOC_CHAN/MSEED */
@@ -204,13 +314,31 @@ sendrecord (char *record, int reclen)
   endtime = msr_endtime (msr);
 
   /* Send record to server */
-  if (dl_write (dlconn, record, reclen, streamid, msr->starttime, endtime, writeack) < 0)
+  int write_status = -2;
+  if (dl_write (dlconn, record, reclen, streamid, msr->starttime, endtime, writeack, &write_status) >= 0)
   {
-    sl_log (2, 0, "WRITE_ERR | Error writing to host \n");
-    return -1;
+    // dl_write = 0 when success and no ack is requested
+    // dl_write > 0 when success and ack is requested (returns pkt id)
+    return 0;
   }
+  else
+  {
+    sl_log (2, 0, "Error on dl_write() \n");
 
-  return 0;
+    switch(write_status){
+      case WRITE_STREAM_UNAUTHORIZED_ERROR:
+        return -1;
+      case WRITE_ERROR:
+      case WRITE_INTERNAL_ERROR:
+      case WRITE_UNAUTHORIZED_ERROR:
+      case WRITE_NO_DEVICE_ERROR:
+      case WRITE_EXPIRED_TOKEN_ERROR:
+      case WRITE_FORMAT_ERROR:
+      case WRITE_LARGE_PACKET_ERROR:
+      default:
+        return -2; // disconnect
+    }
+  }
 } /* End of sendrecord() */
 
 /***************************************************************************
