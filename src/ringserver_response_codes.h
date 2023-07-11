@@ -39,6 +39,9 @@
                                                // Action: Disconnect
 #define WRITE_LARGE_PACKET_ERROR          171  // Packet is larger than ring packet size
                                                // Action: Disconnect (should we just drop?)
+#define WRITE_DUPLICATE_PACKET_ERROR      181  // Packet has an overlap in ring, based on datastart and dataend times
+                                               // Action: continue with next (pkt was dropped)
+
 
 #define AUTH_SUCCESS                      200  // Catch all success
                                                // Action: Continue
@@ -70,6 +73,7 @@
 #define WRITE_EXPIRED_TOKEN_ERROR_STR        "WRITE_EXPIRED_TOKEN_ERROR"
 #define WRITE_FORMAT_ERROR_STR               "WRITE_FORMAT_ERROR"
 #define WRITE_LARGE_PACKET_ERROR_STR         "WRITE_LARGE_PACKET_ERROR"
+#define WRITE_DUPLICATE_PACKET_ERROR_STR     "WRITE_DUPLICATE_PACKET_ERROR"
 
 #define AUTH_SUCCESS_STR                     "AUTH_SUCCESS"
 #define AUTH_ERROR_STR                       "AUTH_ERROR"
