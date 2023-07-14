@@ -323,10 +323,11 @@ sendrecord (char *record, int reclen)
   }
   else
   {
-    sl_log (2, 0, "Error on dl_write() \n");
 
     switch(write_status){
       case WRITE_STREAM_UNAUTHORIZED_ERROR:
+      case WRITE_DUPLICATE_PACKET_ERROR:
+        sl_log (2, 0, "Warning on dl_write() \n");
         return -1;
       case WRITE_ERROR:
       case WRITE_INTERNAL_ERROR:
@@ -336,6 +337,7 @@ sendrecord (char *record, int reclen)
       case WRITE_FORMAT_ERROR:
       case WRITE_LARGE_PACKET_ERROR:
       default:
+        sl_log (2, 0, "Error on dl_write() \n");
         return -2; // disconnect
     }
   }
