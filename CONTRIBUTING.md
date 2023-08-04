@@ -35,4 +35,4 @@
     - `$TOKEN` - auth token from the AuthServer saved in a variable
     - `net_sta` - device network and station codes, ie `GE_TOLI2` or `AM_<station-code-of-your-rshake>`
     - `seedlink-server` - data source, ie `geofon.gfz-potsdam.de` or `rs.local`
-    - `ringserver-host` - IP address of the RingServer you're running.
+    - `ringserver-host` - IP address of the RingServer you're running, ie `localhost:16000`
