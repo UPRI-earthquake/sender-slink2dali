@@ -16,7 +16,7 @@
     ```bash
     make
     ```
-3. Acquire *sensor token* from AuthServer, make sure that earthquake-hub-backend is running to do this. Send a POST request to `http://172.22.0.3:5000/accounts/authenticate` with the following request body:
+3. Acquire *sensor token* from AuthServer, make sure that earthquake-hub-backend is running and that you have previously created this account. Send a POST request to `http://172.22.0.3:5000/accounts/authenticate` with the following request body:
     ```json
     {
         "username": "citizen",
