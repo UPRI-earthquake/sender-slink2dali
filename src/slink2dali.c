@@ -327,7 +327,7 @@ sendrecord (char *record, int reclen)
     switch(write_status){
       case WRITE_STREAM_UNAUTHORIZED_ERROR:
       case WRITE_DUPLICATE_PACKET_ERROR:
-        sl_log (2, 0, "Warning on dl_write(): write_status = %d \n", write_status);
+        sl_log (1, 0, "Warning on dl_write(): write_status = %d \n", write_status);
         return -1;
       case WRITE_ERROR:
       case WRITE_INTERNAL_ERROR:
